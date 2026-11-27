@@ -13,6 +13,7 @@
 [![WebRTC](https://img.shields.io/badge/Calls-WebRTC%20·%20coturn-333333?logo=webrtc&logoColor=white)](https://webrtc.org)
 [![Vault](https://img.shields.io/badge/Keys-HashiCorp%20Vault-FFEC6E?logo=vault&logoColor=black)](https://www.vaultproject.io)
 [![Tests](https://img.shields.io/badge/tests-1200%2B-success)](#testing-and-ci)
+[![License](https://img.shields.io/badge/License-All%20rights%20reserved-lightgrey)](LICENSE)
 
 Android 8.0+ · in production since September 2025 · private code
 
@@ -62,31 +63,43 @@ One developer on the whole stack: mobile client, native plugins, backend, server
 
 ## Features
 
-**Accounts are issued by an admin.** There is no self sign-up. A super admin creates an account, and the server shows the sign-in token once. The database keeps only its SHA-256 hash, in a separate table closed to everything except the service role. An admin can reissue a lost token or block a user.
+### Messaging
+- Personal and group chats: replies, forwarding, editing, pinned messages, drafts.
+- Message search and link previews.
+- Offline outbox: messages sent without a connection go out once it is back.
+- Photos, videos and files with multipart upload. Videos are compressed on the phone ([how](#native-media-processing-on-the-phone)).
+- Voice messages with a waveform. Playback continues in the background.
+- Presence: online, "last seen", "typing", "recording", "uploading".
 
-**Chats.** Personal and group chats, replies, forwarding, editing, pinned messages, link previews, drafts, message search. Messages sent while offline wait in an outbox and go out when the connection is back.
+### Calls
+- 1:1 audio calls on WebRTC through a self-hosted TURN server.
+- Rings on the lock screen, even if the app was swiped away.
+- Survives a network switch and a screen lock.
+- Audio goes through the relay by default, so peers never see each other's IP.
+- Call history in the chat: outgoing, incoming, missed, duration.
 
-**Media.** Photos, videos and files with multipart upload. Videos are compressed on the phone by native code: anything above 1080p is scaled down, and a clip that is already H.264, at most 1080p and within the bitrate budget is sent untouched. Media is served through signed temporary links.
+### Notifications
+- Push for messages and calls via Firebase Cloud Messaging.
+- A burst of messages arrives as one summary, not ten notifications.
 
-**Voice messages.** Recording with a waveform, computed natively from the audio. Playback continues when the app is in the background. Recording uses a format that stays readable even if it was cut off mid-way, and before sending it is repackaged into MP4 without re-encoding, so every client version can play it.
+### Security and access
+- No self sign-up: a super admin issues accounts, and the sign-in token is shown once.
+- Messages are encrypted on the server with a key per chat ([details](#server-side-encryption-with-keys-in-a-separate-store)).
+- Row-level security in Postgres: a user sees only their own chats.
+- Media is served through signed temporary links.
+- A PIN code on top of the session. Input locks after three wrong attempts.
 
-**Presence.** Online status, "last seen", and "typing", "recording" and "uploading" indicators.
+### Administration
+- Two roles: super admin and admin.
+- A user list with statuses: active, pending, blocked.
+- Create accounts, reissue tokens, block users. A support chat.
 
-**1:1 audio calls.** WebRTC through a self-hosted TURN server. An incoming call rings on the lock screen even if the app was swiped away from recents. A call survives a network switch and a screen lock. By default audio goes through the relay only, so the two sides never see each other's IP address. The chat keeps call history: outgoing, incoming, missed, duration.
-
-**Push notifications.** For messages and calls, via Firebase Cloud Messaging. When messages arrive in a burst, the recipient gets one summary instead of ten notifications in a row.
-
-**Encryption and access.** Message content is encrypted on the server with a separate key per chat. Row-level security in Postgres lets a user into their own chats only. Details in [Key decisions](#key-decisions).
-
-**PIN code.** A separate PIN on top of the account session. It is checked on the server and stored as a PBKDF2 hash. After three wrong attempts input is locked for a while.
-
-**Administration.** Two roles, super admin and admin, with different permissions. A user list with statuses (active, pending, blocked), account creation, token reissue, blocking. A support chat.
-
-**Look and language.** Light and dark theme, Russian and English.
-
-**White-label builds.** One app per branch and three environments (dev, staging, production). Each build has its own icons, colours and feature flags.
-
-**Own update system.** The app finds a new version, downloads it through a one-time signed link and installs it in one tap. Before installing, it checks the source, the version number and the APK signature. A release can be made mandatory, which blocks older versions. The first install goes through an invite link.
+### Builds and updates
+- A separate app per branch and three environments: dev, staging, production.
+- Each build has its own icons, colours and feature flags.
+- Light and dark theme, Russian and English.
+- One-tap in-app updates through a one-time signed link. Source, version and APK signature are checked before install.
+- A release can be made mandatory. The first install goes through an invite link.
 
 ## What's not included
 
@@ -218,47 +231,78 @@ Signalling (dashed) goes over private Supabase Realtime channels.
 
 ### Server-side encryption with keys in a separate store
 
-The client never writes to the messages table directly. Sending, editing, fetching and searching go through Edge Functions, and all the cryptography lives there. Each chat has its own data key (DEK), wrapped by a master key (KEK). The master key is kept in HashiCorp Vault on a separate server that is reachable only over WireGuard. A database leak on its own does not expose the messages. Link previews are stored inside the encrypted text, not next to it.
+**Problem:** a database leak must not expose the messages.
 
-This is server-side encryption, not end-to-end. End-to-end encryption on an established library is in progress.
+**Solution:**
+- The client never writes to the messages table. Send, edit, fetch and search go through Edge Functions, and all the cryptography lives there.
+- Each chat has its own data key (DEK), wrapped by a master key (KEK).
+- The master key is kept in HashiCorp Vault on a separate server, reachable only over WireGuard.
+- Link previews are encrypted together with the text.
+
+> This is server-side encryption, not end-to-end. End-to-end encryption on an established library is in progress.
 
 ### Sign-in with an admin-issued token
 
-The company does not need open sign-up: only its own staff should be in the messenger. So accounts are created by a super admin, and a person signs in with the token they were given. The server shows the token once and keeps only a hash. Profile secrets (token and PIN hashes) live in a separate table that clients cannot access at all. Sign-in attempts are rate-limited per IP, and the IP is stored as an HMAC: a plain SHA-256 of an IPv4 address can be brute-forced in hours.
+**Problem:** only the company's own staff should be in the messenger.
+
+**Solution:**
+- No open sign-up. A super admin creates the account and hands over a sign-in token.
+- The server shows the token once and keeps only its hash.
+- Token and PIN hashes live in a separate table that clients cannot access at all.
+- Sign-in attempts are rate-limited per IP. The IP is stored as an HMAC, because a plain SHA-256 of an IPv4 address can be brute-forced in hours.
 
 ### Push: from an own service to FCM data-only messages
 
-In the first version notifications came through a self-hosted push service. That needed a foreground service running on the phone all the time, with a notification the user cannot dismiss, and the foreground-service limits in Android 15 made this setup unreliable. I moved delivery to FCM data-only messages, the Signal-style pattern: the push carries no visible content, and the app builds the notification itself.
+**Problem:** the first version used a self-hosted push service. It needed a foreground service with a notification the user could not dismiss, and Android 15 limits made it unreliable.
 
-Messages that arrive in a burst are collected on the server and sent as one summary once the stream goes quiet. A push FCM did not accept stays queued and is retried every minute until it is no longer relevant.
-
-Incoming calls are handled by a native Kotlin plugin. It shows a call-style notification with a ringtone right away and reads the caller's details from an encrypted cache on the device. The Flutter background handler is only a fallback.
+**Solution:**
+- Delivery moved to FCM data-only messages, the Signal-style pattern: the push has no visible content, the app builds the notification itself.
+- A burst of messages is collected on the server and sent as one summary.
+- A push FCM did not accept is retried every minute until it is no longer relevant.
+- Incoming calls are handled by a native Kotlin plugin: a call-style notification with a ringtone right away, caller details from an encrypted cache on the device.
 
 ### A late call push does not ring
 
-The phone may have been off, offline or in Doze mode, so a call push can arrive after the call has ended. Before showing an incoming call, the native side asks the server whether the call is still on. The request works without a session (on a phone that hasn't been opened for a while the access token has already expired) and exposes exactly one bit about one call, looked up by the random id from the push.
+**Problem:** the phone may have been off, offline or in Doze, so a call push can arrive after the call has ended.
+
+**Solution:**
+- Before ringing, the native side asks the server whether the call is still on.
+- The request works without a session, since the access token on a long-idle phone has already expired.
+- It reveals one bit about one call, looked up by the random id from the push.
 
 ### Call signalling that survives a late peer
 
-Signalling goes over Supabase Realtime broadcast channels that are closed to everyone except the call participants. Broadcast keeps no history: anything sent before the other side subscribes is lost. With calls this happens all the time: the callee answers from the lock screen after the app was killed, or their phone starts ringing before the caller has opened their channel.
+**Problem:** signalling goes over Supabase Realtime broadcast, which keeps no history. Anything sent before the other side subscribes is lost, and with calls that happens all the time.
 
-So every step is acknowledged. The callee repeats "ringing" until the caller reacts. The caller resends the current offer for a while, and the callee answers a repeated offer again. If a call was accepted but did not connect in time, it ends on both sides instead of hanging. If the connection drops mid-call, for example when switching from Wi-Fi to LTE, only the caller starts an ICE restart, so two restarts never collide.
+**Solution:** every step is acknowledged.
+- The callee repeats "ringing" until the caller reacts.
+- The caller resends the current offer, and the callee answers a repeated offer again.
+- An accepted call that does not connect in time ends on both sides instead of hanging.
+- After a network switch (Wi-Fi → LTE) only the caller starts an ICE restart, so two restarts never collide.
 
 ### A calls schema ready for group calls
 
-A call is a row in the calls table plus rows in a separate participants table, and the mode field already allows SFU next to peer-to-peer. Group calls can be added as a module without reworking the schema. A unique index allows a user only one active call, so a second simultaneous call gets "busy" instead of a race.
+- A call is a row in the calls table plus rows in a separate participants table.
+- The mode field already allows SFU next to peer-to-peer, so group calls can be added as a module.
+- A unique index allows a user one active call at a time: a second call gets "busy" instead of a race.
 
 ### Native media processing on the phone
 
-Phone cameras record in 4K, and sending that as is takes long and costs mobile data. Transcoding is written in Kotlin on the hardware codec: the clip is scaled down to 1080p and the bitrate is capped by resolution. If a video already fits, it is sent untouched: compressing it again would only lose quality and make the file bigger.
+**Problem:** phone cameras shoot 4K, and sending that as is takes long and eats mobile data.
 
-Voice is recorded as AAC with a header on every frame, so even a recording cut off mid-way can be read. Before sending it is repackaged into MP4 without re-encoding, and a truncated last frame is dropped.
+**Solution:**
+- Video is transcoded in Kotlin on the hardware codec: scaled down to 1080p, bitrate capped by resolution.
+- A video that already fits is sent untouched, since compressing it again only loses quality.
+- Voice is recorded as AAC with a header on every frame, so even a recording cut off mid-way is readable.
+- Before sending, voice is repackaged into MP4 without re-encoding.
 
 ### Releases that keep old APKs working
 
-Without a store, people update when they feel like it, and some stay on an old version for a long time. So database migrations only expand the schema: new tables, new columns with a default value. Nothing an old client may read is dropped or renamed. Messages stored before a new format appeared are read as before.
+**Problem:** without a store, people update when they feel like it, and some stay on an old version for a long time.
 
-Deploy and release are separate:
+**Solution:**
+- Migrations only expand the schema: new tables, new columns with defaults. Nothing an old client reads is dropped or renamed.
+- Deploy and release are separate steps:
 
 ```mermaid
 flowchart LR
@@ -269,11 +313,14 @@ flowchart LR
     USERS -.->|"rollback"| PREV["previous version"]
 ```
 
-Each chain runs strictly in order and stops at the first failure. Users see a new version only after a separate "activate release" step, which switches the version table and the download link together. A rollback workflow switches both back.
+- Each chain runs strictly in order and stops at the first failure.
+- Users see a new version only after "activate release", which switches the version table and the download link together. Rollback switches both back.
 
 ### A locked-down server side
 
-The TURN server cannot reach internal networks, has per-user quotas and accepts only short-lived credentials. The servers talk to each other over WireGuard. CI deploys as a separate user with restricted permissions.
+- TURN cannot reach internal networks, has per-user quotas and accepts only short-lived credentials.
+- Servers talk to each other over WireGuard.
+- CI deploys as a separate user with restricted permissions.
 
 ## Security
 
@@ -367,3 +414,7 @@ All logic the client can't be trusted with lives in 26 Deno functions.
 ## What's next
 
 End-to-end encryption on an established library is in progress.
+
+## License
+
+All rights reserved. The code is private; the texts and images here may not be reused without permission. See [LICENSE](LICENSE).
