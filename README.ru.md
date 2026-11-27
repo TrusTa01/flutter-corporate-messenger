@@ -26,9 +26,7 @@ Android 8.0+ · в продакшене с сентября 2025 года · к�
 
 ## Демо
 
-<!-- TODO: на GitHub (Edit) удалите строку с картинкой ниже и перетащите на её место
-     videos/messenger/slim/promo.ru.mp4. GitHub вставит ссылку user-attachments со встроенным плеером. -->
-<img src="media/promo.ru.jpg" width="720" alt="White-label мессенджер: обложка промо-ролика"/>
+https://github.com/user-attachments/assets/5d3dff25-f3ae-4c64-9ef0-6dfd45b71710
 
 ## Скриншоты
 
