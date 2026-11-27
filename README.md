@@ -17,7 +17,7 @@
 
 Android 8.0+ · in production since September 2025 · private code
 
-**English** · [Русский](README.ru.md)
+<img src="https://raw.githubusercontent.com/TrusTa01/TrusTa01/main/assets/lang/seg-en-on.svg" alt="English"><a href="README.ru.md"><img src="https://raw.githubusercontent.com/TrusTa01/TrusTa01/main/assets/lang/seg-ru-off.svg" alt="Русский"></a>
 
 </div>
 
