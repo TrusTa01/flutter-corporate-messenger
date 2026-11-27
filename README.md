@@ -26,9 +26,7 @@ Android 8.0+ · in production since September 2025 · private code
 
 ## Demo
 
-<!-- TODO: on GitHub (Edit), delete the image line below and drag
-     videos/messenger/slim/promo.mp4 in its place. GitHub inserts a user-attachments link with an inline player. -->
-<img src="media/promo.jpg" width="720" alt="White-label Messenger: promo video cover"/>
+https://github.com/user-attachments/assets/5485c6e5-fabb-4a9a-b805-bd392f9d1882
 
 ## Screenshots
 
