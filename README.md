@@ -21,8 +21,6 @@ Android 8.0+ · in production since September 2025 · private code
 
 </div>
 
-<!-- TODO: banner -->
-
 > [!NOTE]
 > This is a commercial project, so the code repository is private. Below is what was built and the decisions behind it. User names and logins are hidden in the screenshots.
 
