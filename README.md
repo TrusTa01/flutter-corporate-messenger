@@ -51,6 +51,7 @@ Android 8.0+ · in production since September 2025 · private code
 | GitHub Actions | 7 workflows |
 | Commits | 1,400+ |
 | Servers | 6: two physical, a cloud test server, a separate VPS, two relays |
+| Infrastructure repo | Ansible, 16 roles, 190+ commits |
 | Developers | 1, full stack |
 
 ## The task
@@ -134,7 +135,7 @@ flowchart LR
     end
 
     FCM["Firebase Cloud Messaging<br/>data-only pushes"]
-    RELAY["Relays (2)<br/>fallback path to the API"]
+    RELAY["Relays (2)<br/>TURN, fallback path to the API,<br/>backup for pushes"]
     STG["Cloud test server<br/>staging"]
 
     subgraph CI["GitHub Actions"]
@@ -353,15 +354,50 @@ All logic the client can't be trusted with lives in 26 Deno functions.
 
 ## Infrastructure
 
-- Two physical production servers, the main one and the key server, connected by WireGuard. Docker and Nginx behind ufw and fail2ban.
-- A cloud test server for staging: every push to `main` lands here before a release reaches production.
-- A separate VPS for one of the apps.
-- Two relays: if a user's direct path to the server fails, the app reaches the API through them.
-- Self-hosted Supabase: Postgres, PostgREST, GoTrue, Realtime, Storage, Edge Functions on Deno.
-- HashiCorp Vault for keys, coturn for TURN.
-- Uptime Kuma watches availability, GlitchTip collects client errors. The server also keeps a call delivery funnel ("rang", "answered", "connected"): a call that never rang leaves no error on the phone, but it shows up here.
-- Encrypted nightly backups.
-- Server configuration is moving to Ansible roles.
+### Servers
+
+| Server | What runs there |
+|---|---|
+| Main (physical) | Supabase in Docker, Nginx, coturn, GlitchTip, deploy target |
+| Key server (physical) | HashiCorp Vault, receives encrypted backups. Reachable only over WireGuard |
+| Cloud test server | The whole staging on one machine (Supabase + Vault), central monitoring |
+| Separate VPS | One of the apps: Supabase, Vault, error tracking and backups on one machine |
+| Two relays (rented) | TURN for calls, a fallback path to the API, a backup channel for pushes |
+
+### Relays
+
+The rented machines run nothing but coturn, baseline hardening and two forwarders. Even if one is compromised, it gives away almost nothing.
+
+- **Calls.** Its own TURN server with its own secret, so a stolen secret does not open the main server's TURN. The app picks a server that suits both peers.
+- **Fallback path to the API.** If a user's direct path to the server fails, the app goes through a relay. It forwards TCP by server name (SNI) without terminating TLS: there are no keys or certificates on the machine, and it never sees the content.
+- **Backup for pushes.** If the main server cannot reach FCM directly, it goes to Google through a WireGuard tunnel to a relay. A proxy there allows only Google addresses on port 443, and encryption runs end to end up to Google.
+- Machine names are neutral, each has its own SSH key, and monitoring checks them from outside.
+
+### Infrastructure as code
+
+The servers are described in a separate private **Ansible** repository: 16 roles and one playbook for everything, from baseline hardening to the office router.
+
+| Roles | What they do |
+|---|---|
+| `common`, `security` | Baseline setup, SSH with no passwords and no root login, ufw, fail2ban |
+| `docker_firewall` | Closes ports Docker publishes past ufw |
+| `nginx`, `supabase`, `hashicorp_vault`, `coturn` | The main stack |
+| `cd_user`, `apk_download` | A CI deploy user allowed to run only specific scripts; APK hosting |
+| `api_relay`, `push_relay` | API and push relays |
+| `diag`, `uptime_kuma`, `glitchtip` | Monitoring and error tracking |
+| `backups` | GPG-encrypted nightly dumps shipped to the key server |
+| `mikrotik_config` | MikroTik router setup: port forwarding, priority for call traffic |
+
+- The same roles build both layouts: production on two machines (main + keys) and everything on one machine (staging and the separate VPS).
+- Secrets are encrypted with Ansible Vault, and every PR gets a secret scan (gitleaks).
+- Runbooks for production rollout and Docker image rollback live next to the code.
+
+### Monitoring
+
+- An agent on every server sends a heartbeat to a central diagnostics hub. The hub makes a verdict, shows it in Uptime Kuma and can send alerts to Telegram.
+- It works the other way too: if the hub itself goes silent, the main server reports it.
+- GlitchTip collects client errors.
+- A call delivery funnel ("rang", "answered", "connected"): a call that never rang leaves no error on the phone, but it shows up here.
 
 ## Testing and CI
 
@@ -381,7 +417,7 @@ All logic the client can't be trusted with lives in 26 Deno functions.
 | Notifications | Firebase Cloud Messaging (data-only), `flutter_local_notifications`, a native Kotlin plugin for incoming calls |
 | Backend | Self-hosted Supabase: Postgres with RLS, PostgREST, GoTrue, Realtime, Storage, Edge Functions on Deno |
 | Security | HashiCorp Vault, AES-GCM with DEK/KEK keys, PBKDF2, WireGuard, ufw, fail2ban |
-| Infrastructure | Docker, Nginx, Uptime Kuma, GlitchTip (Sentry SDK), encrypted backups, Ansible |
+| Infrastructure | Ansible (separate repo), Ansible Vault, Docker, Nginx, MikroTik RouterOS, Uptime Kuma, GlitchTip (Sentry SDK), GPG-encrypted backups |
 | CI/CD | GitHub Actions |
 | Localisation | Russian, English (ARB) |
 
@@ -413,7 +449,8 @@ All logic the client can't be trusted with lives in 26 Deno functions.
 
 ## What's next
 
-End-to-end encryption on an established library is in progress.
+- End-to-end encryption on an established library is in progress.
+- Terraform may join Ansible in the infrastructure repository to create the servers themselves.
 
 ## License
 
